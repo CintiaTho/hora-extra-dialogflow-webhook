@@ -1,0 +1,136 @@
+/**
+ * This is the main Node.js server script for your project
+ * Check out the two endpoints this back-end API provides in fastify.get and fastify.post below
+ */
+"use strict";
+
+const path = require("path");
+
+const bodyParser = require("body-parser");
+
+const express = require("express");
+const app = express();
+
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
+const { WebhookClient } = require("dialogflow-fulfillment");
+const { Card, Suggestion } = require("dialogflow-fulfillment");
+const axios = require("axios");
+
+// Load and parse SEO data
+const seo = require("./src/seo.json");
+if (seo.url === "glitch-default") {
+  seo.url = `https://${process.env.PROJECT_DOMAIN}.glitch.me`;
+}
+
+// Load data from our .env file
+const sheetdbURL = process.env.SHEETDB_URL;
+const sheetdbUsername = process.env.SHEETDB_LOGIN;
+const sheetdbPassword = process.env.SHEETDB_PASSWORD;
+
+const basicAuth =
+  sheetdbUsername && sheetdbPassword
+    ? {
+        username: sheetdbUsername,
+        password: sheetdbPassword
+      }
+    : {};
+
+const sheetName = "HorasExtras";
+
+function welcome(agent) {
+  agent.add(`Welcome to my agent!`);
+}
+
+function fallback(agent) {
+  return new Promise((resolve, reject) => {
+    agent.add(`I didn't understand`);
+    agent.add(`I'm sorry, can you try again?`);
+  });
+}
+
+function callbackBuscaDado(dado, textoAuxiliar, agent) {
+  const matrícula = agent.parameters.Matricula;
+  console.log("agent.parameters: ", JSON.stringify(agent.parameters));
+  return new Promise((resolve, reject) => {
+    let url = encodeURI(
+      `${sheetdbURL}/search?sheet=${sheetName}&Matrícula=${matrícula}`
+    );
+    axios
+      .get(url, {
+        auth: basicAuth
+      })
+      .then(function(res) {
+        console.log("res.data: ", JSON.stringify(res.data));
+        if (!res.data[0]) {
+          agent.add(`Não encontramos a matrícula ${matrícula} :(`);
+        } else if (res.data.length > 1) {
+          agent.add(
+            `Múltiplos registros foram encontrados para a matrícula ${matrícula}!`
+          );
+        } else {
+          let dadosMatrícula = res.data[0];
+
+          if (dado in dadosMatrícula) {
+            agent.add(
+              `${textoAuxiliar} matrícula ${matrícula}: ${dadosMatrícula[dado]}`
+            );
+          } else {
+            agent.add(
+              `Matrícula ${matrícula} foi encontrada mas não foi possível obter dados de horas extras :(`
+            );
+          }
+        }
+      })
+      .catch(function(error) {
+        console.log(error.toJSON());
+        agent.add(
+          `Houve uma falha no processamento dos dados. Tente novamente.`
+        );
+      })
+      .then(function() {
+        resolve();
+      });
+  });
+}
+
+/**
+ * Our POST route to handle and react to form submissions
+ *
+ * Accepts body data indicating the user choice
+ */
+app.post("/webhook", function(request, response) {
+  const agent = new WebhookClient({ request, response });
+
+  var callbackHorasExtras = callbackBuscaDado.bind(
+    null,
+    "Horas extras",
+    "Horas extras encontradas para a"
+  );
+
+  var callbackNome = callbackBuscaDado.bind(null, "Nome", "Nome relacionado a");
+
+  var callbackHorasTrabalhadas = callbackBuscaDado.bind(
+    null,
+    "Horas trabalhadas",
+    "Horas extras trabalhadas para a"
+  );
+
+  // Run the proper function handler based on the matched Dialogflow intent name
+  let intentMap = new Map();
+  intentMap.set("Default Welcome Intent", welcome);
+  intentMap.set("Default Fallback Intent", fallback);
+  // Nomes exatos de intent com a função callback a ser chamada
+  intentMap.set("Consultar Horas Extras", callbackHorasExtras);
+  intentMap.set("Consultar Horas Trabalhadas", callbackHorasTrabalhadas);
+  intentMap.set("Consultar Nome", callbackNome);
+
+  agent.handleRequest(intentMap);
+});
+
+// listen for requests :)
+var listener = app.listen(process.env.PORT, function() {
+  console.log("Your app is listening on port " + listener.address().port);
+});
+

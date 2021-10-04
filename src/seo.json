@@ -1,0 +1,7 @@
+{
+  "glitch-help-instructions": "For a custom domain, change the 'url' parameter from 'glitch-default' to your domain _without_ a traling slash, like 'https://www.example.com'",
+  "title": "Hora Extra Dialogflow Webhook",
+  "description": "Código de um simples WebHook para um Chatbot usando Dialogflow e Google Sheet",
+  "url": "glitch-default"
+}
+
